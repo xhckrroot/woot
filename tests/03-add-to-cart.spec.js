@@ -14,7 +14,6 @@ test.describe("3. Add to Cart", () => {
   test("buy button is present and clickable", async ({ page }) => {
     await goToProduct(page, config);
 
-    // If search was used, click into the first result
     if (config.searchTerm) {
       const resultLink = page.locator(
         'a[href*="/offers/"], a[href*="/deals/"], [class*="result"] a, [class*="product"] a'
@@ -26,12 +25,12 @@ test.describe("3. Add to Cart", () => {
     }
 
     const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy"), [class*="buy-button" i], [class*="add-to-cart" i], [class*="addToCart" i]'
-    ).first();
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator(
+      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"], [class*="AddToCart"]'
+    )).first();
 
-    const soldOut = page.locator(
-      'text=/sold out/i, text=/out of stock/i, [class*="sold-out" i], [class*="soldout" i]'
-    ).first();
+    const soldOut = page.getByText(/sold out|out of stock/i).first();
 
     if ((await soldOut.count()) > 0) {
       console.log("SOLD OUT — product is no longer available for purchase");
@@ -59,13 +58,12 @@ test.describe("3. Add to Cart", () => {
       }
     }
 
-    // Look for quantity selector
     const qtySelect = page.locator(
-      'select[name*="quantity" i], select[name*="qty" i], select[class*="quantity" i]'
+      'select[name*="quantity"], select[name*="qty"], select[name*="Quantity"], select[class*="quantity"], select[class*="Quantity"]'
     ).first();
 
     const qtyInput = page.locator(
-      'input[name*="quantity" i], input[name*="qty" i], input[class*="quantity" i]'
+      'input[name*="quantity"], input[name*="qty"], input[name*="Quantity"], input[class*="quantity"], input[class*="Quantity"]'
     ).first();
 
     if ((await qtySelect.count()) > 0) {
@@ -101,15 +99,17 @@ test.describe("3. Add to Cart", () => {
       }
     }
 
-    const soldOut = page.locator('text=/sold out/i, text=/out of stock/i').first();
+    const soldOut = page.getByText(/sold out|out of stock/i).first();
     if ((await soldOut.count()) > 0) {
       test.skip(true, "Product sold out");
       return;
     }
 
     const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy"), [class*="buy-button" i], [class*="add-to-cart" i]'
-    ).first();
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator(
+      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
+    )).first();
 
     if ((await buyButton.count()) === 0) {
       test.skip(true, "No buy button found");
@@ -125,15 +125,12 @@ test.describe("3. Add to Cart", () => {
     const currentUrl = page.url();
     console.log(`URL after clicking buy: ${currentUrl}`);
 
-    // Check what happened
     const wentToAmazon = currentUrl.includes("amazon.com");
     const wentToCart = currentUrl.includes("cart") || currentUrl.includes("checkout");
-    const loginPrompt = page.locator(
-      'text=/sign in/i, text=/log in/i, text=/login/i, [class*="signin" i], [class*="login" i]'
-    );
-    const cartModal = page.locator(
-      '[class*="cart" i], [class*="modal" i], [class*="overlay" i]'
-    );
+
+    const loginPrompt = page.locator('[class*="signin"], [class*="SignIn"], [class*="login"], [class*="Login"]')
+      .or(page.getByText(/sign in|log in|login/i));
+    const cartModal = page.locator('[class*="cart"], [class*="Cart"], [class*="modal"], [class*="Modal"]');
 
     const hasLogin = (await loginPrompt.count()) > 0;
     const hasCart = (await cartModal.count()) > 0;
@@ -143,7 +140,6 @@ test.describe("3. Add to Cart", () => {
     console.log(`Login prompt shown: ${hasLogin}`);
     console.log(`Cart/modal appeared: ${hasCart}`);
 
-    // Something should have happened
     expect(wentToAmazon || wentToCart || hasLogin || hasCart).toBe(true);
   });
 });

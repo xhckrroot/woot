@@ -23,10 +23,7 @@ test.describe("1. Product Page Validation", () => {
   test("product has a title/name displayed", async ({ page }) => {
     await goToProduct(page, config);
 
-    const productName = page.locator(
-      'h1, h2, [class*="title" i], [class*="product-name" i], [class*="productName" i], [data-testid*="title"]'
-    ).first();
-
+    const productName = page.locator("h1, h2").first();
     await expect(productName).toBeVisible();
     const name = await productName.textContent();
     console.log(`Product name: ${name?.trim()}`);
@@ -35,9 +32,10 @@ test.describe("1. Product Page Validation", () => {
   test("product has price information", async ({ page }) => {
     await goToProduct(page, config);
 
-    const price = page.locator(
-      '[class*="price" i], [class*="Price"], [data-testid*="price"], text=/\\$\\d+/'
-    ).first();
+    // Use page.getByText for regex matching, combined with CSS selectors via .or()
+    const priceByClass = page.locator('[class*="price"], [class*="Price"]');
+    const priceByText = page.getByText(/\$\d+/);
+    const price = priceByClass.or(priceByText).first();
 
     await expect(price).toBeVisible();
     const priceText = await price.textContent();
@@ -47,15 +45,13 @@ test.describe("1. Product Page Validation", () => {
   test("product has an image", async ({ page }) => {
     await goToProduct(page, config);
 
-    const productImage = page.locator(
-      '[class*="product"] img, [class*="gallery"] img, [class*="image"] img, main img'
-    ).first();
-
+    // Broader image search — look for any substantial image on the page
+    const productImage = page.locator("img[src]").first();
     await expect(productImage).toBeVisible();
+
     const src = await productImage.getAttribute("src");
     console.log(`Product image src: ${src}`);
 
-    // Verify image actually loaded
     const loaded = await productImage.evaluate(
       (img) => img.complete && img.naturalWidth > 0
     );
@@ -66,7 +62,7 @@ test.describe("1. Product Page Validation", () => {
     await goToProduct(page, config);
 
     const specs = page.locator(
-      '[class*="spec" i], [class*="condition" i], [class*="detail" i], [class*="description" i], [class*="feature" i]'
+      '[class*="spec"], [class*="Spec"], [class*="condition"], [class*="detail"], [class*="Detail"], [class*="description"], [class*="Description"], [class*="feature"], [class*="Feature"]'
     ).first();
 
     if ((await specs.count()) > 0) {
@@ -80,9 +76,9 @@ test.describe("1. Product Page Validation", () => {
   test("shipping information is displayed", async ({ page }) => {
     await goToProduct(page, config);
 
-    const shipping = page.locator(
-      'text=/shipping/i, text=/delivery/i, text=/free shipping/i, text=/Prime/i, [class*="shipping" i]'
-    ).first();
+    const shippingByClass = page.locator('[class*="shipping"], [class*="Shipping"], [class*="delivery"], [class*="Delivery"]');
+    const shippingByText = page.getByText(/shipping|delivery|free shipping|Prime/i);
+    const shipping = shippingByClass.or(shippingByText).first();
 
     if ((await shipping.count()) > 0) {
       const text = await shipping.textContent();

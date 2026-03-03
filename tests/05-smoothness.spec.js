@@ -129,10 +129,9 @@ test.describe("5. Checkout Smoothness Report", () => {
 
     console.log(`\nMobile horizontal scroll: ${hasHorizontalScroll ? "YES (bad)" : "NO (good)"}`);
 
-    // Check buy button is still accessible on mobile
     const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy"), [class*="buy-button" i]'
-    ).first();
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator('[class*="buy-button"], [class*="BuyButton"]')).first();
 
     if ((await buyButton.count()) > 0) {
       const visible = await buyButton.isVisible();
@@ -149,12 +148,10 @@ test.describe("5. Checkout Smoothness Report", () => {
       issues: [],
     };
 
-    // Navigate to product
     let start = Date.now();
     await goToProduct(page, config);
     results.steps.push({ name: "Navigate to product", time: Date.now() - start });
 
-    // Click into result if search
     if (config.searchTerm) {
       start = Date.now();
       const resultLink = page.locator('a[href*="/offers/"], a[href*="/deals/"]').first();
@@ -167,16 +164,14 @@ test.describe("5. Checkout Smoothness Report", () => {
       }
     }
 
-    // Check product availability
-    const soldOut = page.locator('text=/sold out/i, text=/out of stock/i').first();
+    const soldOut = page.getByText(/sold out|out of stock/i).first();
     if ((await soldOut.count()) > 0) {
       results.issues.push("Product is sold out");
     }
 
-    // Check buy button
     const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy"), [class*="buy-button" i]'
-    ).first();
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator('[class*="buy-button"], [class*="BuyButton"]')).first();
 
     if ((await buyButton.count()) > 0) {
       const isDisabled = await buyButton.isDisabled();
@@ -190,10 +185,9 @@ test.describe("5. Checkout Smoothness Report", () => {
       results.issues.push("No buy button found on product page");
     }
 
-    // Print report
-    console.log("\n╔══════════════════════════════════╗");
-    console.log("║   CHECKOUT SMOOTHNESS REPORT     ║");
-    console.log("╚══════════════════════════════════╝");
+    console.log("\n==============================");
+    console.log("  CHECKOUT SMOOTHNESS REPORT");
+    console.log("==============================");
     console.log(`\nProduct: ${config.productUrl || config.searchTerm}`);
     console.log(`URL: ${page.url()}`);
 
@@ -207,12 +201,11 @@ test.describe("5. Checkout Smoothness Report", () => {
 
     if (results.issues.length > 0) {
       console.log("\n--- Issues Found ---");
-      results.issues.forEach((i) => console.log(`  ⚠ ${i}`));
+      results.issues.forEach((i) => console.log(`  WARNING: ${i}`));
     } else {
       console.log("\n--- No issues detected ---");
     }
 
-    // Overall verdict
     const smooth = totalTime < 15000 && results.issues.length === 0;
     console.log(`\nVerdict: ${smooth ? "SMOOTH" : "NEEDS ATTENTION"}`);
   });

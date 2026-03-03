@@ -47,7 +47,7 @@ async function goToProduct(page, config) {
 
     // Look for search input
     const searchInput = page.locator(
-      'input[type="search"], input[name="search"], input[name="q"], input[placeholder*="search" i], input[placeholder*="Search" i], [class*="search"] input'
+      'input[type="search"], input[name="search"], input[name="q"], input[placeholder*="search"], input[placeholder*="Search"], [class*="search"] input, [class*="Search"] input'
     ).first();
 
     if ((await searchInput.count()) > 0) {
@@ -77,8 +77,10 @@ async function signInWithAmazon(page, email, password) {
 
   // Look for sign-in link on current page
   const signIn = page.locator(
-    'a:has-text("Sign In"), a:has-text("Log In"), button:has-text("Sign In"), [class*="sign-in" i], [class*="login" i], [class*="signin" i]'
-  ).first();
+    'a:has-text("Sign In"), a:has-text("Log In"), button:has-text("Sign In")'
+  ).or(page.locator(
+    '[class*="sign-in"], [class*="SignIn"], [class*="login"], [class*="Login"], [class*="signin"]'
+  )).first();
 
   if ((await signIn.count()) > 0) {
     await signIn.click();

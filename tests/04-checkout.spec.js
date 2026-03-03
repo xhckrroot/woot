@@ -19,10 +19,9 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await signInWithAmazon(page, config.email, config.password);
 
-    // Verify signed in — should see account indicator
     const accountIndicator = page.locator(
-      '[class*="account" i], [class*="user" i], text=/my account/i, text=/sign out/i, text=/log out/i'
-    ).first();
+      '[class*="account"], [class*="Account"], [class*="user"], [class*="User"]'
+    ).or(page.getByText(/my account|sign out|log out/i)).first();
 
     const isSignedIn = (await accountIndicator.count()) > 0 || page.url().includes("woot.com");
     console.log(`Signed in: ${isSignedIn}`);
@@ -43,7 +42,6 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     start = Date.now();
     await goToProduct(page, config);
 
-    // If search, pick the first result
     if (config.searchTerm) {
       const resultLink = page.locator('a[href*="/offers/"], a[href*="/deals/"]').first();
       if ((await resultLink.count()) > 0) {
@@ -55,14 +53,14 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     console.log(`Product navigation: ${timings.productPage}ms`);
 
     // Step 3: Check availability
-    const soldOut = page.locator('text=/sold out/i, text=/out of stock/i').first();
+    const soldOut = page.getByText(/sold out|out of stock/i).first();
     if ((await soldOut.count()) > 0) {
       console.log("Product is SOLD OUT — cannot complete checkout");
       return;
     }
 
     // Step 4: Set quantity if applicable
-    const qtySelect = page.locator('select[name*="quantity" i], select[name*="qty" i]').first();
+    const qtySelect = page.locator('select[name*="quantity"], select[name*="qty"]').first();
     if ((await qtySelect.count()) > 0 && config.quantity > 1) {
       await qtySelect.selectOption(String(config.quantity));
       console.log(`Quantity set to: ${config.quantity}`);
@@ -70,8 +68,10 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
 
     // Step 5: Click buy
     const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy"), [class*="buy-button" i], [class*="add-to-cart" i]'
-    ).first();
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator(
+      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
+    )).first();
 
     if ((await buyButton.count()) === 0) {
       console.log("No buy button found");
@@ -88,10 +88,8 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     console.log(`Checkout URL: ${checkoutUrl}`);
 
     // Step 6: Look for checkout components (Amazon Pay flow)
-    // Shipping address
-    const shippingAddress = page.locator(
-      'text=/shipping address/i, text=/deliver to/i, [class*="address" i], [class*="shipping" i]'
-    ).first();
+    const shippingAddress = page.locator('[class*="address"], [class*="Address"], [class*="shipping"], [class*="Shipping"]')
+      .or(page.getByText(/shipping address|deliver to/i)).first();
 
     if ((await shippingAddress.count()) > 0) {
       const text = await shippingAddress.textContent();
@@ -100,10 +98,8 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
       console.log("No shipping address section visible yet");
     }
 
-    // Payment method
-    const paymentMethod = page.locator(
-      'text=/payment/i, text=/pay with/i, text=/credit card/i, [class*="payment" i]'
-    ).first();
+    const paymentMethod = page.locator('[class*="payment"], [class*="Payment"]')
+      .or(page.getByText(/payment|pay with|credit card/i)).first();
 
     if ((await paymentMethod.count()) > 0) {
       const text = await paymentMethod.textContent();
@@ -112,10 +108,8 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
       console.log("No payment section visible yet");
     }
 
-    // Order total
-    const orderTotal = page.locator(
-      'text=/total/i, text=/order summary/i, [class*="total" i], [class*="summary" i]'
-    ).first();
+    const orderTotal = page.locator('[class*="total"], [class*="Total"], [class*="summary"], [class*="Summary"]')
+      .or(page.getByText(/total|order summary/i)).first();
 
     if ((await orderTotal.count()) > 0) {
       const text = await orderTotal.textContent();
@@ -124,8 +118,8 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
 
     // Place order button (DO NOT CLICK)
     const placeOrder = page.locator(
-      'button:has-text("Place"), button:has-text("Complete"), button:has-text("Confirm"), button:has-text("Submit"), [class*="place-order" i]'
-    ).first();
+      'button:has-text("Place"), button:has-text("Complete"), button:has-text("Confirm"), button:has-text("Submit")'
+    ).or(page.locator('[class*="place-order"], [class*="PlaceOrder"]')).first();
 
     if ((await placeOrder.count()) > 0) {
       console.log("Place Order button found — STOPPING HERE (will not place real order)");
