@@ -52,10 +52,24 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     timings.productPage = Date.now() - start;
     console.log(`Product navigation: ${timings.productPage}ms`);
 
-    // Step 3: Check availability
-    const soldOut = page.getByText(/sold out|out of stock/i).first();
-    if ((await soldOut.count()) > 0) {
-      console.log("Product is SOLD OUT — cannot complete checkout");
+    // Step 3: Find the buy button first, then check availability
+    const buyButton = page.locator(
+      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+    ).or(page.locator(
+      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
+    )).first();
+
+    if ((await buyButton.count()) === 0) {
+      // No buy button — check if product is sold out in the main product area
+      const productArea = page.locator('#product, [class*="product-detail"], [class*="ProductDetail"], [class*="offer"], main, [id="content"]').first();
+      const scope = (await productArea.count()) > 0 ? productArea : page;
+      const soldOut = scope.locator('button:has-text("Sold Out"), [class*="sold-out"], [class*="SoldOut"]')
+        .or(scope.getByText(/sold out|out of stock/i)).first();
+      if ((await soldOut.count()) > 0) {
+        console.log("Product is SOLD OUT — cannot complete checkout");
+      } else {
+        console.log("No buy button found");
+      }
       return;
     }
 
@@ -64,18 +78,6 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     if ((await qtySelect.count()) > 0 && config.quantity > 1) {
       await qtySelect.selectOption(String(config.quantity));
       console.log(`Quantity set to: ${config.quantity}`);
-    }
-
-    // Step 5: Click buy
-    const buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
-    ).or(page.locator(
-      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
-    )).first();
-
-    if ((await buyButton.count()) === 0) {
-      console.log("No buy button found");
-      return;
     }
 
     start = Date.now();
