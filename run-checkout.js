@@ -92,6 +92,34 @@ async function main() {
     testFilter = " tests/01-product-page.spec.js tests/02-search-results.spec.js tests/03-add-to-cart.spec.js";
   }
 
+  // Prompt for Amazon credentials if running checkout tests and none are set
+  if (scope === "1" || scope === "2") {
+    const hasEmail = env.includes("WOOT_EMAIL") || process.env.WOOT_EMAIL;
+    const hasPassword = env.includes("WOOT_PASSWORD") || process.env.WOOT_PASSWORD;
+    let configCreds = {};
+    if (fs.existsSync(CONFIG_PATH)) {
+      try { configCreds = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")); } catch {}
+    }
+    const hasConfigEmail = configCreds.amazon_email;
+    const hasConfigPassword = configCreds.amazon_password;
+
+    if (!hasEmail && !hasConfigEmail) {
+      console.log("\nCheckout tests require Amazon login credentials.");
+      const email = await ask("Amazon email: ");
+      if (email) {
+        env += ` WOOT_EMAIL="${email}"`;
+        const password = await ask("Amazon password: ");
+        if (password) {
+          env += ` WOOT_PASSWORD="${password}"`;
+        }
+      } else {
+        console.log("No credentials provided — checkout sign-in tests will be skipped.");
+      }
+    } else {
+      console.log("\nUsing existing Amazon credentials for checkout.");
+    }
+  }
+
   // Ask about headed mode
   const headed = await ask("\nRun with visible browser? (y/N): ");
   const headedFlag = headed.toLowerCase() === "y" ? " --headed" : "";
