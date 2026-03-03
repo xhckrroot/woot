@@ -1,0 +1,8 @@
+{
+  "_comment": "Fill in ONE of: product_url OR search_term. Set credentials to test full checkout.",
+  "product_url": "https://www.woot.com/offers/some-product-deal-name",
+  "search_term": "wireless earbuds",
+  "quantity": 1,
+  "amazon_email": "you@example.com",
+  "amazon_password": "your-password"
+}

@@ -1,12 +1,13 @@
 {
   "name": "woot-checkout-tests",
-  "version": "1.0.0",
-  "description": "E2E tests for woot.com checkout flow",
+  "version": "2.0.0",
+  "description": "Request-based E2E checkout tests for woot.com",
   "scripts": {
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
-    "test:report": "npx playwright show-report"
+    "test:report": "npx playwright show-report",
+    "checkout": "node run-checkout.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.45.0"
