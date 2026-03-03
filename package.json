@@ -7,7 +7,9 @@
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:report": "npx playwright show-report",
-    "checkout": "node run-checkout.js"
+    "checkout": "node run-checkout.js",
+    "checkout:complete": "npx playwright test tests/04-checkout.spec.js --reporter=list",
+    "checkout:quick": "npx playwright test tests/01-product-page.spec.js tests/02-search-results.spec.js tests/03-add-to-cart.spec.js --reporter=list"
   },
   "devDependencies": {
     "@playwright/test": "^1.45.0"

@@ -77,6 +77,21 @@ async function main() {
     console.log(`\nUsing config: ${config.product_url || config.search_term}`);
   }
 
+  // Ask which tests to run
+  console.log("\nWhich tests do you want to run?\n");
+  console.log("  1. All tests (product page, search, add-to-cart, checkout, smoothness)");
+  console.log("  2. Complete checkout only (sign in → cart → shipping → payment review)");
+  console.log("  3. Quick tests only (product page, search, add-to-cart)\n");
+
+  const scope = await ask("Choose (1/2/3): ");
+
+  let testFilter = "";
+  if (scope === "2") {
+    testFilter = " tests/04-checkout.spec.js";
+  } else if (scope === "3") {
+    testFilter = " tests/01-product-page.spec.js tests/02-search-results.spec.js tests/03-add-to-cart.spec.js";
+  }
+
   // Ask about headed mode
   const headed = await ask("\nRun with visible browser? (y/N): ");
   const headedFlag = headed.toLowerCase() === "y" ? " --headed" : "";
@@ -86,7 +101,7 @@ async function main() {
   console.log("\nStarting tests...\n");
 
   try {
-    execSync(`${env} npx playwright test${headedFlag} --reporter=list`, {
+    execSync(`${env} npx playwright test${headedFlag}${testFilter} --reporter=list`, {
       stdio: "inherit",
       cwd: __dirname,
     });
