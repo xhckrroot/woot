@@ -75,25 +75,40 @@ async function goToProduct(page, config) {
 async function signInWithAmazon(page, email, password) {
   console.log("Attempting Amazon sign-in...");
 
-  // Look for sign-in link on current page
-  const signIn = page.locator(
-    'a:has-text("Sign In"), a:has-text("Log In"), button:has-text("Sign In")'
-  ).or(page.locator(
-    '[class*="sign-in"], [class*="SignIn"], [class*="login"], [class*="Login"], [class*="signin"]'
-  )).first();
+  // Woot's header overlays can intercept clicks, so we use specific selectors
+  // and force-click or JS-click when needed.
+  const signIn = page.locator('[data-test-ui="prime-header-lwa"]').or(
+    page.locator('.login-with-amazon')
+  ).or(
+    page.locator('a:has-text("Sign In"), a:has-text("Log In"), button:has-text("Sign In")')
+  ).or(
+    page.locator('[class*="sign-in"], [class*="SignIn"], [class*="login"], [class*="Login"], [class*="signin"]')
+  ).first();
 
   if ((await signIn.count()) > 0) {
-    await signIn.click();
+    try {
+      await signIn.click({ timeout: 5000 });
+    } catch {
+      // Header elements overlap the sign-in button; use JS click to bypass
+      console.log("Normal click blocked by overlay — using JS click");
+      await signIn.dispatchEvent("click");
+    }
     await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(2000);
   }
 
-  // Click "Log in with Amazon" button
+  // Click "Log in with Amazon" button (may appear as a popup/modal or redirect)
   const amazonLogin = page.locator(
-    'button:has-text("Amazon"), a:has-text("Amazon"), [id*="LoginWithAmazon"], img[alt*="Amazon"]'
+    '[id*="LoginWithAmazon"], img[alt*="Amazon"], button:has-text("Amazon"), a:has-text("Amazon")'
   ).first();
 
   if ((await amazonLogin.count()) > 0) {
-    await amazonLogin.click();
+    try {
+      await amazonLogin.click({ timeout: 5000 });
+    } catch {
+      console.log("Amazon login button blocked — using JS click");
+      await amazonLogin.dispatchEvent("click");
+    }
     await page.waitForLoadState("domcontentloaded");
   }
 
