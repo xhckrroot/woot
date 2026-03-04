@@ -239,6 +239,7 @@ async function solveAwsCaptchaIfPresent(page) {
   }
 
   // Create CapMonster task
+  console.log(`Sending to CapMonster: websiteURL=${page.url()}, key=${websiteKey.substring(0, 30)}..., iv=${iv}, context=${context.substring(0, 30)}... (${context.length} chars), captchaScript=${captchaScript}, challengeScript=${challengeScript}`);
   const createRes = await fetch(`${CAPMONSTER_API}/createTask`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -257,7 +258,8 @@ async function solveAwsCaptchaIfPresent(page) {
     }),
   });
   const createData = await createRes.json();
-  if (createData.errorId) throw new Error(`CapMonster createTask error: ${createData.errorDescription}`);
+  console.log(`CapMonster createTask response: ${JSON.stringify(createData)}`);
+  if (createData.errorId) throw new Error(`CapMonster createTask error [${createData.errorCode}]: ${createData.errorDescription}`);
 
   const taskId = createData.taskId;
   console.log(`CapMonster task created: ${taskId}`);
@@ -294,7 +296,10 @@ async function solveAwsCaptchaIfPresent(page) {
       return true;
     }
 
-    if (resultData.errorId) throw new Error(`CapMonster solve error: ${resultData.errorDescription}`);
+    if (resultData.errorId) {
+      console.log(`CapMonster error response: ${JSON.stringify(resultData)}`);
+      throw new Error(`CapMonster solve error [${resultData.errorCode}]: ${resultData.errorDescription}`);
+    }
   }
 
   throw new Error("CapMonster CAPTCHA solving timed out");
