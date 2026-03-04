@@ -79,94 +79,152 @@ async function solveAwsCaptchaIfPresent(page) {
   const captchaHeader = page.locator("#aacb-captcha-header");
   if ((await captchaHeader.count()) === 0) return false;
 
-  const apiKey = process.env.CAPMONSTER_API_KEY;
-  if (!apiKey) throw new Error("CAPTCHA detected but CAPMONSTER_API_KEY env var is not set");
+  const cmApiKey = process.env.CAPMONSTER_API_KEY;
+  if (!cmApiKey) throw new Error("CAPTCHA detected but CAPMONSTER_API_KEY env var is not set");
 
-  console.log("CAPTCHA detected — waiting for full page load...");
+  console.log("CAPTCHA detected — extracting AWS WAF parameters...");
   await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(2000);
 
-  // Extract params using multiple strategies
-  const params = await page.evaluate(() => {
-    let websiteKey = null, context = null, iv = null;
-    let challengeScript = null, captchaScript = null;
+  let websiteKey = null, context = null, iv = null;
+  let challengeScript = null, captchaScript = null;
 
-    // Strategy 1: window.gokuProps (standard AWS WAF)
+  // Strategy 1: page.evaluate — check gokuProps + search inline scripts for apiKey/context/iv
+  const evalResult = await page.evaluate(() => {
+    let wk = null, ctx = null, ivVal = null;
+
+    // Check gokuProps
     if (window.gokuProps) {
-      websiteKey = window.gokuProps.key || null;
-      context = window.gokuProps.context || null;
-      iv = window.gokuProps.iv || null;
+      wk = window.gokuProps.key || null;
+      ctx = window.gokuProps.context || null;
+      ivVal = window.gokuProps.iv || null;
     }
 
-    // Strategy 2: Search inline scripts for gokuProps or key/context/iv patterns
-    if (!websiteKey || !context || !iv) {
-      const inlineScripts = Array.from(document.querySelectorAll("script:not([src])"));
-      for (const script of inlineScripts) {
-        const text = script.textContent || "";
-        // Look for gokuProps assignment
-        const gokuMatch = text.match(/gokuProps\s*=\s*\{([^}]*)\}/);
-        if (gokuMatch) {
-          const keyM = gokuMatch[1].match(/["']?key["']?\s*:\s*["']([^"']+)["']/);
-          const ctxM = gokuMatch[1].match(/["']?context["']?\s*:\s*["']([^"']+)["']/);
-          const ivM = gokuMatch[1].match(/["']?iv["']?\s*:\s*["']([^"']+)["']/);
-          if (keyM) websiteKey = websiteKey || keyM[1];
-          if (ctxM) context = context || ctxM[1];
-          if (ivM) iv = iv || ivM[1];
+    // Search ALL inline scripts for apiKey, context (base64), iv (base64)
+    if (!wk || !ctx || !ivVal) {
+      const scripts = Array.from(document.querySelectorAll("script:not([src])"));
+      for (const s of scripts) {
+        const t = s.textContent || "";
+        if (!wk) {
+          const m = t.match(/["']?apiKey["']?\s*:\s*["']([A-Za-z0-9+/=]{10,})["']/);
+          if (m) wk = m[1];
+        }
+        if (!ctx) {
+          // WAF context is a long base64 string (50+ chars)
+          const matches = [...t.matchAll(/["']?context["']?\s*:\s*["']([A-Za-z0-9+/=]{50,})["']/g)];
+          if (matches.length > 0) ctx = matches[0][1];
+        }
+        if (!ivVal) {
+          const m = t.match(/["']?iv["']?\s*:\s*["']([A-Za-z0-9+/=]{5,50})["']/);
+          if (m) ivVal = m[1];
         }
       }
     }
 
-    // Find challenge/captcha script URLs
+    // Find script URLs
     const srcScripts = Array.from(document.querySelectorAll("script[src]"));
-    challengeScript = (srcScripts.find(s => s.src.includes("challenge.js")) || {}).src || null;
-    captchaScript = (srcScripts.find(s => s.src.includes("captcha.js")) || {}).src || null;
+    const cs = (srcScripts.find(s => s.src.includes("challenge.js")) || {}).src || null;
+    const cps = (srcScripts.find(s => s.src.includes("captcha.js")) || {}).src || null;
 
-    // Debug info
-    const scriptSrcs = srcScripts.map(s => s.src);
-    const inlineSnippets = Array.from(document.querySelectorAll("script:not([src])"))
-      .map(s => (s.textContent || "").substring(0, 500));
-    const iframes = Array.from(document.querySelectorAll("iframe")).map(f => f.src);
-    const captchaGlobals = Object.keys(window).filter(k =>
-      /goku|captcha|waf|challenge|aacb/i.test(k)
-    );
+    // Get full captcha init script for debugging
+    const captchaInitScript = Array.from(document.querySelectorAll("script:not([src])"))
+      .filter(s => (s.textContent || "").includes("captcha-container"))
+      .map(s => s.textContent)[0] || null;
 
-    return {
-      websiteKey, context, iv, challengeScript, captchaScript,
-      debug: { scriptSrcs, inlineSnippets, iframes, captchaGlobals },
-    };
+    return { wk, ctx, ivVal, cs, cps, captchaInitScript };
   });
 
-  console.log(`Params: key=${params.websiteKey ? "found" : "missing"}, context=${params.context ? "found" : "missing"}, iv=${params.iv ? "found" : "missing"}`);
-  console.log(`Challenge script: ${params.challengeScript || "not found"}`);
-  console.log(`Captcha script: ${params.captchaScript || "not found"}`);
-  console.log(`Script sources: ${JSON.stringify(params.debug.scriptSrcs)}`);
-  console.log(`Iframes: ${JSON.stringify(params.debug.iframes)}`);
-  console.log(`CAPTCHA globals: ${JSON.stringify(params.debug.captchaGlobals)}`);
-  params.debug.inlineSnippets.forEach((s, i) => console.log(`Inline[${i}]: ${s}`));
+  websiteKey = evalResult.wk;
+  context = evalResult.ctx;
+  iv = evalResult.ivVal;
+  challengeScript = evalResult.cs;
+  captchaScript = evalResult.cps;
 
-  // Check child frames for gokuProps
-  if (!params.websiteKey || !params.context || !params.iv) {
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
+  if (evalResult.captchaInitScript) {
+    console.log("CAPTCHA init script:", evalResult.captchaInitScript.substring(0, 2000));
+  }
+
+  // Strategy 2: Search full page HTML via page.content()
+  if (!websiteKey || !context || !iv) {
+    console.log("Strategy 1 incomplete — searching full page HTML...");
+    const html = await page.content();
+
+    if (!websiteKey) {
+      const m = html.match(/["']apiKey["']\s*:\s*["']([A-Za-z0-9+/=]{10,})["']/);
+      if (m) websiteKey = m[1];
+    }
+    if (!context) {
+      const matches = [...html.matchAll(/["']context["']\s*:\s*["']([A-Za-z0-9+/=]{50,})["']/g)];
+      if (matches.length > 0) context = matches[0][1];
+    }
+    if (!iv) {
+      // iv is base64, typically 10-30 chars, avoid false matches with common "iv" strings
+      const matches = [...html.matchAll(/["']iv["']\s*:\s*["']([A-Za-z0-9+/=]{5,50})["']/g)];
+      if (matches.length > 0) iv = matches[0][1];
+    }
+  }
+
+  console.log(`After page extraction: key=${websiteKey ? "found" : "missing"}, context=${context ? "found" : "missing"}, iv=${iv ? "found" : "missing"}`);
+
+  // Strategy 3: Network interception — reload page and capture WAF API responses
+  if (!websiteKey || !context || !iv) {
+    console.log("Params not in page HTML — trying network interception on reload...");
+
+    const wafResponses = [];
+    const handler = async (response) => {
+      const url = response.url();
+      // Capture non-JS responses from captcha.awswaf.com (API calls)
+      if (url.includes("captcha.awswaf.com") && !url.endsWith(".js")) {
+        try {
+          const body = await response.text();
+          wafResponses.push({ url, body });
+        } catch {}
+      }
+    };
+    page.on("response", handler);
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(5000);
+    page.off("response", handler);
+
+    console.log(`Captured ${wafResponses.length} WAF API responses`);
+    for (const resp of wafResponses) {
+      console.log(`WAF response [${resp.url}]: ${resp.body.substring(0, 500)}`);
       try {
-        const fp = await frame.evaluate(() => ({
-          key: (window.gokuProps || {}).key || null,
-          context: (window.gokuProps || {}).context || null,
-          iv: (window.gokuProps || {}).iv || null,
-          url: location.href,
-        }));
-        console.log(`Frame [${fp.url}]: key=${fp.key ? "found" : "missing"}`);
-        if (fp.key) params.websiteKey = fp.key;
-        if (fp.context) params.context = fp.context;
-        if (fp.iv) params.iv = fp.iv;
-      } catch (e) {
-        console.log(`Frame error: ${e.message}`);
+        const data = JSON.parse(resp.body);
+        if (data.key && !websiteKey) websiteKey = data.key;
+        if (data.context && !context) context = data.context;
+        if (data.iv && !iv) iv = data.iv;
+      } catch {
+        // Regex fallback for non-JSON responses
+        if (!websiteKey) { const m = resp.body.match(/"key"\s*:\s*"([^"]+)"/); if (m) websiteKey = m[1]; }
+        if (!context) { const m = resp.body.match(/"context"\s*:\s*"([^"]+)"/); if (m) context = m[1]; }
+        if (!iv) { const m = resp.body.match(/"iv"\s*:\s*"([^"]+)"/); if (m) iv = m[1]; }
+      }
+    }
+
+    // Re-try page extraction after reload (new HTML may have params)
+    if (!websiteKey || !context || !iv) {
+      const reloadParams = await page.evaluate(() => {
+        if (window.gokuProps) {
+          return { key: window.gokuProps.key, context: window.gokuProps.context, iv: window.gokuProps.iv };
+        }
+        return null;
+      });
+      if (reloadParams) {
+        websiteKey = websiteKey || reloadParams.key;
+        context = context || reloadParams.context;
+        iv = iv || reloadParams.iv;
       }
     }
   }
 
-  if (!params.websiteKey || !params.context || !params.iv) {
-    throw new Error("Could not extract CAPTCHA parameters — see debug logs above for page structure");
+  console.log(`Final extraction: key=${websiteKey ? websiteKey.substring(0, 20) + "..." : "MISSING"}, context=${context ? "found (" + context.length + " chars)" : "MISSING"}, iv=${iv || "MISSING"}`);
+  console.log(`Challenge script: ${challengeScript || "not found"}`);
+  console.log(`Captcha script: ${captchaScript || "not found"}`);
+
+  if (!websiteKey || !context || !iv) {
+    throw new Error("Could not extract CAPTCHA parameters from page or network");
   }
 
   // Create CapMonster task
@@ -174,15 +232,15 @@ async function solveAwsCaptchaIfPresent(page) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      clientKey: apiKey,
+      clientKey: cmApiKey,
       task: {
         type: "AmazonTaskProxyless",
         websiteURL: page.url(),
-        challengeScript: params.challengeScript || "",
-        captchaScript: params.captchaScript || "",
-        websiteKey: params.websiteKey,
-        context: params.context,
-        iv: params.iv,
+        challengeScript: challengeScript || "",
+        captchaScript: captchaScript || "",
+        websiteKey,
+        context,
+        iv,
         cookieSolution: true,
       },
     }),
@@ -199,7 +257,7 @@ async function solveAwsCaptchaIfPresent(page) {
     const resultRes = await fetch(`${CAPMONSTER_API}/getTaskResult`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clientKey: apiKey, taskId }),
+      body: JSON.stringify({ clientKey: cmApiKey, taskId }),
     });
     const resultData = await resultRes.json();
 
