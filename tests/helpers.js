@@ -192,9 +192,15 @@ async function solveAwsCaptchaIfPresent(page) {
       console.log(`WAF response [${resp.url}]: ${resp.body.substring(0, 500)}`);
       try {
         const data = JSON.parse(resp.body);
+        // Check top-level
         if (data.key && !websiteKey) websiteKey = data.key;
         if (data.context && !context) context = data.context;
         if (data.iv && !iv) iv = data.iv;
+        // Check nested state object (AWS WAF /problem endpoint returns state.iv + state.payload)
+        if (data.state) {
+          if (data.state.iv && !iv) iv = data.state.iv;
+          if (data.state.payload && !context) context = data.state.payload;
+        }
       } catch {
         // Regex fallback for non-JSON responses
         if (!websiteKey) { const m = resp.body.match(/"key"\s*:\s*"([^"]+)"/); if (m) websiteKey = m[1]; }
@@ -222,6 +228,11 @@ async function solveAwsCaptchaIfPresent(page) {
   console.log(`Final extraction: key=${websiteKey ? websiteKey.substring(0, 20) + "..." : "MISSING"}, context=${context ? "found (" + context.length + " chars)" : "MISSING"}, iv=${iv || "MISSING"}`);
   console.log(`Challenge script: ${challengeScript || "not found"}`);
   console.log(`Captcha script: ${captchaScript || "not found"}`);
+
+  // Construct challengeScript URL from captchaScript if missing
+  if (!challengeScript && captchaScript) {
+    challengeScript = captchaScript.replace("captcha.js", "challenge.js");
+  }
 
   if (!websiteKey || !context || !iv) {
     throw new Error("Could not extract CAPTCHA parameters from page or network");
