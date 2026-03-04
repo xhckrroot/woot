@@ -105,6 +105,19 @@ async function signInWithAmazon(page, email, password) {
     await page.waitForLoadState("domcontentloaded");
   }
 
+  // Dismiss passkey prompt if it appears (e.g. "Sign in with a passkey")
+  const passkeyDismiss = page.locator(
+    'a:has-text("Not now"), button:has-text("Not now"), a:has-text("Skip"), button:has-text("Skip"), a:has-text("sign in with your password"), button:has-text("sign in with your password"), [id*="decline"], [id*="skip"]'
+  ).first();
+  try {
+    await passkeyDismiss.waitFor({ state: "visible", timeout: 3000 });
+    console.log("Passkey prompt detected — dismissing");
+    await passkeyDismiss.click();
+    await page.waitForLoadState("domcontentloaded");
+  } catch {
+    // No passkey prompt, continue normally
+  }
+
   // Step 4: Fill Amazon password
   const passwordInput = page.locator("input#ap_password").first();
   await passwordInput.waitFor({ state: "visible", timeout: 15000 });
@@ -113,6 +126,18 @@ async function signInWithAmazon(page, email, password) {
 
   const signInBtn = page.locator("input#signInSubmit").first();
   await signInBtn.click();
+
+  // Dismiss passkey prompt again if it appears after sign-in
+  try {
+    const passkeyDismiss2 = page.locator(
+      'a:has-text("Not now"), button:has-text("Not now"), a:has-text("Skip"), button:has-text("Skip"), [id*="decline"], [id*="skip"]'
+    ).first();
+    await passkeyDismiss2.waitFor({ state: "visible", timeout: 3000 });
+    console.log("Post-login passkey prompt — dismissing");
+    await passkeyDismiss2.click();
+  } catch {
+    // No passkey prompt
+  }
 
   // Step 5: Wait for redirect back to woot.com
   await page.waitForURL("**/woot.com/**", { timeout: 30000 });
