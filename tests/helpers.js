@@ -84,7 +84,7 @@ async function signInWithAmazon(page, email, password) {
 
   // Step 2: Click "Login with Amazon" button on account.woot.com
   const amazonLogin = page.locator(
-    '[id*="LoginWithAmazon"], [class*="LoginWithAmazon"], [class*="login-with-amazon"], img[alt*="Amazon"], a:has-text("Login with Amazon"), button:has-text("Login with Amazon"), a:has-text("Sign in with Amazon"), button:has-text("Sign in with Amazon")'
+    '#lwa-button, [id*="LoginWithAmazon"], [class*="LoginWithAmazon"], [class*="login-with-amazon"], img[alt*="Amazon"], a:has-text("Login with Amazon"), button:has-text("Login with Amazon"), a:has-text("Sign in with Amazon"), button:has-text("Sign in with Amazon")'
   ).first();
 
   await amazonLogin.waitFor({ state: "visible", timeout: 15000 });
