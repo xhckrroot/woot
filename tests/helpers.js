@@ -2,6 +2,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const CAPMONSTER_API = "https://api.capmonster.cloud";
+
 /**
  * Load product configuration from:
  *   1. Environment variables (PRODUCT_URL, SEARCH_TERM, QUANTITY, WOOT_EMAIL, WOOT_PASSWORD)
@@ -70,6 +72,99 @@ async function goToProduct(page, config) {
 }
 
 /**
+ * Detect and solve AWS WAF CAPTCHA on the current page using CapMonster.
+ * Returns true if a CAPTCHA was found and solved, false otherwise.
+ */
+async function solveAwsCaptchaIfPresent(page) {
+  const captchaHeader = page.locator("#aacb-captcha-header");
+  if ((await captchaHeader.count()) === 0) return false;
+
+  const apiKey = process.env.CAPMONSTER_API_KEY;
+  if (!apiKey) throw new Error("CAPTCHA detected but CAPMONSTER_API_KEY env var is not set");
+
+  console.log("AWS WAF CAPTCHA detected — extracting parameters...");
+
+  const params = await page.evaluate(() => {
+    const goku = window.gokuProps || {};
+    const scripts = Array.from(document.querySelectorAll("script[src]"));
+    return {
+      websiteKey: goku.key || null,
+      context: goku.context || null,
+      iv: goku.iv || null,
+      challengeScript: (scripts.find((s) => s.src.includes("challenge.js")) || {}).src || null,
+      captchaScript: (scripts.find((s) => s.src.includes("captcha.js")) || {}).src || null,
+    };
+  });
+
+  console.log(`CAPTCHA params: key=${params.websiteKey ? "found" : "missing"}, context=${params.context ? "found" : "missing"}, iv=${params.iv ? "found" : "missing"}`);
+
+  if (!params.websiteKey || !params.context || !params.iv) {
+    throw new Error("Could not extract gokuProps from CAPTCHA page");
+  }
+
+  // Create task
+  const createRes = await fetch(`${CAPMONSTER_API}/createTask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientKey: apiKey,
+      task: {
+        type: "AmazonTaskProxyless",
+        websiteURL: page.url(),
+        challengeScript: params.challengeScript || "",
+        captchaScript: params.captchaScript || "",
+        websiteKey: params.websiteKey,
+        context: params.context,
+        iv: params.iv,
+        cookieSolution: true,
+      },
+    }),
+  });
+  const createData = await createRes.json();
+  if (createData.errorId) throw new Error(`CapMonster createTask error: ${createData.errorDescription}`);
+
+  const taskId = createData.taskId;
+  console.log(`CapMonster task created: ${taskId}`);
+
+  // Poll for result (max 120s)
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const resultRes = await fetch(`${CAPMONSTER_API}/getTaskResult`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientKey: apiKey, taskId }),
+    });
+    const resultData = await resultRes.json();
+
+    if (resultData.status === "ready") {
+      console.log("CapMonster CAPTCHA solved!");
+      const solution = resultData.solution || {};
+      const cookies = solution.cookies || {};
+
+      // Apply aws-waf-token cookie
+      for (const [name, value] of Object.entries(cookies)) {
+        const url = new URL(page.url());
+        await page.context().addCookies([{
+          name,
+          value,
+          domain: url.hostname,
+          path: "/",
+        }]);
+        console.log(`Set cookie: ${name}`);
+      }
+
+      // Reload page with the new cookie
+      await page.reload({ waitUntil: "domcontentloaded" });
+      return true;
+    }
+
+    if (resultData.errorId) throw new Error(`CapMonster solve error: ${resultData.errorDescription}`);
+  }
+
+  throw new Error("CapMonster CAPTCHA solving timed out");
+}
+
+/**
  * Sign in with Amazon credentials on woot.com
  */
 async function signInWithAmazon(page, email, password) {
@@ -110,6 +205,9 @@ async function signInWithAmazon(page, email, password) {
     await page.waitForLoadState("domcontentloaded");
   }
 
+  // Check for CAPTCHA after email step
+  await solveAwsCaptchaIfPresent(page);
+
   // Step 4: Fill Amazon password
   const passwordInput = page.locator("input#ap_password").first();
   await passwordInput.waitFor({ state: "visible", timeout: 15000 });
@@ -119,11 +217,24 @@ async function signInWithAmazon(page, email, password) {
   const signInBtn = page.locator("input#signInSubmit").first();
   await signInBtn.click();
 
+  // Check for CAPTCHA after password step
+  await page.waitForTimeout(2000);
+  const captchaSolved = await solveAwsCaptchaIfPresent(page);
+
   // Step 5: Wait for redirect back to woot.com
-  await page.waitForURL("**/woot.com/**", { timeout: 30000 });
+  if (!captchaSolved) {
+    await page.waitForURL("**/woot.com/**", { timeout: 30000 });
+  } else {
+    // After CAPTCHA solve + reload, we may need to wait for redirect
+    try {
+      await page.waitForURL("**/woot.com/**", { timeout: 30000 });
+    } catch {
+      // Already on woot.com after reload
+    }
+  }
   await page.waitForLoadState("domcontentloaded");
 
   console.log(`Post-login URL: ${page.url()}`);
 }
 
-module.exports = { loadProductConfig, goToProduct, signInWithAmazon };
+module.exports = { loadProductConfig, goToProduct, signInWithAmazon, solveAwsCaptchaIfPresent };
