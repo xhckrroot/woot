@@ -19,13 +19,12 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await signInWithAmazon(page, config.email, config.password);
 
-    const accountIndicator = page.locator(
-      '[class*="account"], [class*="Account"], [class*="user"], [class*="User"]'
-    ).or(page.getByText(/my account|sign out|log out/i)).first();
-
-    const isSignedIn = (await accountIndicator.count()) > 0 || page.url().includes("woot.com");
-    console.log(`Signed in: ${isSignedIn}`);
-    expect(page.url()).toContain("woot.com");
+    // After login, the nav shows an <a class="account"> with the username (e.g. "Wooter793812257")
+    const accountLink = page.locator('a.account').first();
+    await accountLink.waitFor({ state: "visible", timeout: 15000 });
+    const accountText = await accountLink.textContent();
+    console.log(`Signed in as: ${accountText?.trim()}`);
+    expect(accountText?.trim()).toBeTruthy();
   });
 
   test("authenticated checkout: product → cart → shipping → payment review", async ({ page }) => {
