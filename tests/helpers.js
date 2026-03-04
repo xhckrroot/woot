@@ -75,74 +75,48 @@ async function goToProduct(page, config) {
 async function signInWithAmazon(page, email, password) {
   console.log("Attempting Amazon sign-in...");
 
-  // Woot's header overlays can intercept clicks, so we use specific selectors
-  // and force-click or JS-click when needed.
-  const signIn = page.locator('[data-test-ui="prime-header-lwa"]').or(
-    page.locator('.login-with-amazon')
-  ).or(
-    page.locator('a:has-text("Sign In"), a:has-text("Log In"), button:has-text("Sign In")')
-  ).or(
-    page.locator('[class*="sign-in"], [class*="SignIn"], [class*="login"], [class*="Login"], [class*="signin"]')
-  ).first();
+  // Step 1: Navigate directly to woot's sign-in page
+  await page.goto(
+    "https://account.woot.com/welcome?returnurl=https%3A%2F%2Fwww.woot.com%2F#signin",
+    { waitUntil: "domcontentloaded" }
+  );
+  console.log(`Sign-in page URL: ${page.url()}`);
 
-  if ((await signIn.count()) > 0) {
-    try {
-      await signIn.click({ timeout: 5000 });
-    } catch {
-      // Header elements overlap the sign-in button; use JS click to bypass
-      console.log("Normal click blocked by overlay — using JS click");
-      await signIn.dispatchEvent("click");
-    }
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(2000);
-  }
-
-  // Click "Log in with Amazon" button (may appear as a popup/modal or redirect)
+  // Step 2: Click "Login with Amazon" button on account.woot.com
   const amazonLogin = page.locator(
-    '[id*="LoginWithAmazon"], img[alt*="Amazon"], button:has-text("Amazon"), a:has-text("Amazon")'
+    '[id*="LoginWithAmazon"], [class*="LoginWithAmazon"], [class*="login-with-amazon"], img[alt*="Amazon"], a:has-text("Login with Amazon"), button:has-text("Login with Amazon"), a:has-text("Sign in with Amazon"), button:has-text("Sign in with Amazon")'
   ).first();
 
-  if ((await amazonLogin.count()) > 0) {
-    try {
-      await amazonLogin.click({ timeout: 5000 });
-    } catch {
-      console.log("Amazon login button blocked — using JS click");
-      await amazonLogin.dispatchEvent("click");
-    }
+  await amazonLogin.waitFor({ state: "visible", timeout: 15000 });
+  console.log("Found Amazon login button");
+  await amazonLogin.click();
+  await page.waitForLoadState("domcontentloaded");
+  console.log(`After Amazon button URL: ${page.url()}`);
+
+  // Step 3: Fill Amazon email (now on amazon.com domain)
+  const emailInput = page.locator("input#ap_email").first();
+  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+  await emailInput.fill(email);
+  console.log("Filled email");
+
+  const continueBtn = page.locator("input#continue").first();
+  if ((await continueBtn.count()) > 0) {
+    await continueBtn.click();
     await page.waitForLoadState("domcontentloaded");
   }
 
-  // Fill Amazon email
-  const emailInput = page.locator(
-    'input[name="email"], input[type="email"], input#ap_email'
-  ).first();
+  // Step 4: Fill Amazon password
+  const passwordInput = page.locator("input#ap_password").first();
+  await passwordInput.waitFor({ state: "visible", timeout: 15000 });
+  await passwordInput.fill(password);
+  console.log("Filled password");
 
-  if ((await emailInput.count()) > 0) {
-    await emailInput.fill(email);
-    const continueBtn = page.locator(
-      'input#continue, input[type="submit"], button[type="submit"]'
-    ).first();
-    if ((await continueBtn.count()) > 0) {
-      await continueBtn.click();
-      await page.waitForLoadState("domcontentloaded");
-    }
-  }
+  const signInBtn = page.locator("input#signInSubmit").first();
+  await signInBtn.click();
 
-  // Fill Amazon password
-  const passwordInput = page.locator(
-    'input[name="password"], input[type="password"], input#ap_password'
-  ).first();
-
-  if ((await passwordInput.count()) > 0) {
-    await passwordInput.fill(password);
-    const signInBtn = page.locator(
-      'input#signInSubmit, input[type="submit"], button[type="submit"]'
-    ).first();
-    if ((await signInBtn.count()) > 0) {
-      await signInBtn.click();
-      await page.waitForLoadState("domcontentloaded");
-    }
-  }
+  // Step 5: Wait for redirect back to woot.com
+  await page.waitForURL("**/woot.com/**", { timeout: 30000 });
+  await page.waitForLoadState("domcontentloaded");
 
   console.log(`Post-login URL: ${page.url()}`);
 }
