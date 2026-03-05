@@ -377,24 +377,127 @@ async function signInWithAmazon(page, email, password) {
   const signInBtn = page.locator("input#signInSubmit").first();
   await signInBtn.click();
 
-  // Check for CAPTCHA after password step
-  await page.waitForTimeout(2000);
-  const captchaSolved = await solveAwsCaptchaIfPresent(page);
+  // Step 5: Wait and detect what happened after sign-in
+  await page.waitForTimeout(3000);
+  await page.waitForLoadState("domcontentloaded");
 
-  // Step 5: Wait for redirect back to woot.com
-  if (!captchaSolved) {
-    await page.waitForURL("**/woot.com/**", { timeout: 30000 });
-  } else {
-    // After CAPTCHA solve + reload, we may need to wait for redirect
+  // Diagnostic: log current state
+  const postClickUrl = page.url();
+  console.log(`Post sign-in click URL: ${postClickUrl}`);
+
+  // Check for CAPTCHA
+  const captchaSolved = await solveAwsCaptchaIfPresent(page);
+  if (captchaSolved) {
+    console.log("CAPTCHA solved, waiting for redirect...");
     try {
       await page.waitForURL("**/woot.com/**", { timeout: 30000 });
     } catch {
-      // Already on woot.com after reload
+      console.log(`After CAPTCHA solve, still on: ${page.url()}`);
     }
+    await page.waitForLoadState("domcontentloaded");
+    console.log(`Post-login URL: ${page.url()}`);
+    return;
   }
-  await page.waitForLoadState("domcontentloaded");
 
-  console.log(`Post-login URL: ${page.url()}`);
+  // Already on woot.com? Great, we're done
+  if (page.url().includes("woot.com")) {
+    await page.waitForLoadState("domcontentloaded");
+    console.log(`Post-login URL (already on woot): ${page.url()}`);
+    return;
+  }
+
+  // Detect common Amazon post-login pages
+  const pageState = await page.evaluate(() => {
+    const body = document.body?.innerText || "";
+    const title = document.title || "";
+    const url = window.location.href;
+
+    // Check for error messages
+    const errorBox = document.querySelector("#auth-error-message-box, .a-alert-content, #auth-warning-message-box, .a-box-inner .a-alert-content");
+    const errorText = errorBox ? errorBox.innerText.trim() : null;
+
+    // Check for OTP / 2FA
+    const otpInput = document.querySelector("input#auth-mfa-otpcode, input[name='otpCode'], input[name='code']");
+    const hasOtp = !!otpInput;
+
+    // Check for approval / notification page
+    const hasApproval = body.includes("Approve the notification") || body.includes("approve this sign-in") || body.includes("sent a notification");
+
+    // Check for image CAPTCHA (not WAF)
+    const hasImageCaptcha = !!document.querySelector("#auth-captcha-image, img[src*='captcha']");
+
+    // Check for "important message" or account hold
+    const hasAccountIssue = body.includes("Important Message") || body.includes("account on hold") || body.includes("verify your identity");
+
+    // Check if password field is still visible (login failed silently)
+    const passwordStillVisible = !!document.querySelector("input#ap_password:not([type='hidden'])");
+
+    return {
+      url,
+      title,
+      errorText,
+      hasOtp,
+      hasApproval,
+      hasImageCaptcha,
+      hasAccountIssue,
+      passwordStillVisible,
+      bodySnippet: body.substring(0, 500),
+    };
+  });
+
+  console.log(`Post sign-in page state:`);
+  console.log(`  URL: ${pageState.url}`);
+  console.log(`  Title: ${pageState.title}`);
+  if (pageState.errorText) console.log(`  Error: ${pageState.errorText}`);
+  if (pageState.hasOtp) console.log(`  OTP/2FA input detected — needs manual code`);
+  if (pageState.hasApproval) console.log(`  Push approval required — check your phone`);
+  if (pageState.hasImageCaptcha) console.log(`  Image CAPTCHA detected (not WAF type)`);
+  if (pageState.hasAccountIssue) console.log(`  Account issue / identity verification required`);
+  if (pageState.passwordStillVisible) console.log(`  Password field still visible — login may have failed`);
+  console.log(`  Page body: ${pageState.bodySnippet}`);
+
+  // Handle OTP: wait for user to manually enter it, then continue
+  if (pageState.hasOtp) {
+    console.log("Waiting up to 60s for OTP submission...");
+    try {
+      await page.waitForURL("**/woot.com/**", { timeout: 60000 });
+    } catch {
+      throw new Error(`OTP/2FA required but never completed. Still on: ${page.url()}`);
+    }
+    await page.waitForLoadState("domcontentloaded");
+    console.log(`Post-login URL (after OTP): ${page.url()}`);
+    return;
+  }
+
+  // Handle approval: wait longer for push notification approval
+  if (pageState.hasApproval) {
+    console.log("Waiting up to 60s for push approval...");
+    try {
+      await page.waitForURL("**/woot.com/**", { timeout: 60000 });
+    } catch {
+      throw new Error(`Push approval required but never completed. Still on: ${page.url()}`);
+    }
+    await page.waitForLoadState("domcontentloaded");
+    console.log(`Post-login URL (after approval): ${page.url()}`);
+    return;
+  }
+
+  // If there's an error or we're stuck, throw with details
+  if (pageState.errorText) {
+    throw new Error(`Amazon login error: ${pageState.errorText}`);
+  }
+
+  // Last resort: try waiting for redirect anyway
+  try {
+    await page.waitForURL("**/woot.com/**", { timeout: 15000 });
+    await page.waitForLoadState("domcontentloaded");
+    console.log(`Post-login URL: ${page.url()}`);
+  } catch {
+    // Take a screenshot path for debugging
+    console.log(`Login stuck on: ${page.url()}`);
+    console.log(`Page content: ${pageState.bodySnippet}`);
+    throw new Error(`Login did not redirect to woot.com. Stuck on: ${page.url()}. Page title: "${pageState.title}". Error: ${pageState.errorText || "none detected"}`);
+  }
 }
 
 module.exports = { loadProductConfig, goToProduct, signInWithAmazon, solveAwsCaptchaIfPresent };
