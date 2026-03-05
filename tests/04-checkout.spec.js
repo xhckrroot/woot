@@ -59,11 +59,8 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     console.log(`Product navigation: ${timings.productPage}ms`);
 
     // Step 3: Find the buy button, or fallback to an in-stock product from homepage
-    let buyButton = page.locator(
-      'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
-    ).or(page.locator(
-      '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
-    )).first();
+    const buyBtnSelector = 'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It"), a:has-text("Add to Cart"), a:has-text("Add to cart"), a:has-text("I Want One"), a:has-text("Buy It"), a.add-to-cart, [class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]';
+    let buyButton = page.locator(buyBtnSelector).first();
 
     if ((await buyButton.count()) === 0) {
       console.log("Product appears sold out or no buy button — searching for an in-stock product...");
@@ -87,11 +84,7 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
         await page.goto(fullUrl, { waitUntil: "domcontentloaded" });
         await page.waitForTimeout(1500);
 
-        buyButton = page.locator(
-          'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
-        ).or(page.locator(
-          '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
-        )).first();
+        buyButton = page.locator(buyBtnSelector).first();
 
         if ((await buyButton.count()) > 0) {
           console.log(`Found in-stock product: ${fullUrl}`);
