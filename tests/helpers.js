@@ -353,12 +353,15 @@ async function signInWithAmazon(page, email, password) {
   await cdp.send("WebAuthn.enable", { enableUI: false });
   console.log("WebAuthn disabled via CDP");
 
-  // Step 3: Fill Amazon email (now on amazon.com domain)
+  // Step 3: Fill Amazon email with human-like typing delays
   const emailInput = page.locator("input#ap_email").first();
   await emailInput.waitFor({ state: "visible", timeout: 15000 });
-  await emailInput.fill(email);
-  console.log("Filled email");
+  await emailInput.click();
+  await page.waitForTimeout(500);
+  await emailInput.pressSequentially(email, { delay: 80 + Math.random() * 60 });
+  console.log("Typed email");
 
+  await page.waitForTimeout(1000 + Math.random() * 500);
   const continueBtn = page.locator("input#continue").first();
   if ((await continueBtn.count()) > 0) {
     await continueBtn.click();
@@ -366,14 +369,18 @@ async function signInWithAmazon(page, email, password) {
   }
 
   // Check for CAPTCHA after email step
+  await page.waitForTimeout(1500);
   await solveAwsCaptchaIfPresent(page);
 
-  // Step 4: Fill Amazon password
+  // Step 4: Fill Amazon password with human-like typing delays
   const passwordInput = page.locator("input#ap_password").first();
   await passwordInput.waitFor({ state: "visible", timeout: 15000 });
-  await passwordInput.fill(password);
-  console.log("Filled password");
+  await passwordInput.click();
+  await page.waitForTimeout(500);
+  await passwordInput.pressSequentially(password, { delay: 90 + Math.random() * 70 });
+  console.log("Typed password");
 
+  await page.waitForTimeout(1000 + Math.random() * 500);
   const signInBtn = page.locator("input#signInSubmit").first();
   await signInBtn.click();
 
