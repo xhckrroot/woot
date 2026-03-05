@@ -5,7 +5,28 @@ const { loadProductConfig, goToProduct, signInWithAmazon } = require("./helpers"
 const config = loadProductConfig();
 const hasCredentials = config.email && config.password;
 
+// Share a single browser context across all tests so we only sign in once
 test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
+  /** @type {import('@playwright/test').BrowserContext} */
+  let context;
+  /** @type {import('@playwright/test').Page} */
+  let page;
+
+  test.beforeAll(async ({ browser }) => {
+    if (!hasCredentials || (!config.productUrl && !config.searchTerm)) return;
+    context = await browser.newContext();
+    page = await context.newPage();
+
+    // Sign in once, reuse for all tests
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await signInWithAmazon(page, config.email, config.password);
+    console.log(`Signed in, current URL: ${page.url()}`);
+  });
+
+  test.afterAll(async () => {
+    if (context) await context.close();
+  });
+
   test.beforeEach(async () => {
     if (!config.productUrl && !config.searchTerm) {
       test.skip(true, "No product specified");
@@ -15,17 +36,13 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     }
   });
 
-  test("sign in with Amazon account", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await signInWithAmazon(page, config.email, config.password);
-
+  test("sign in with Amazon account", async () => {
     // Navigate to account page to verify sign-in
     await page.goto("https://account.woot.com/?ref=ngh_act_ya_ndd", {
       waitUntil: "domcontentloaded",
     });
     console.log(`Account page URL: ${page.url()}`);
 
-    // If we're signed in, account page should show profile info (not redirect to login)
     const pageText = await page.locator("body").textContent();
     console.log(`Account page content (first 500 chars): ${pageText?.trim().substring(0, 500)}`);
 
@@ -34,18 +51,11 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     expect(page.url()).not.toContain("signin");
   });
 
-  test("authenticated checkout: product → cart → shipping → payment review", async ({ page }) => {
+  test("authenticated checkout: product → cart → shipping → payment review", async () => {
     const timings = {};
 
-    // Step 1: Sign in
+    // Step 1: Go to the user's product
     let start = Date.now();
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await signInWithAmazon(page, config.email, config.password);
-    timings.signIn = Date.now() - start;
-    console.log(`Sign-in: ${timings.signIn}ms`);
-
-    // Step 2: Go to the user's product
-    start = Date.now();
     await goToProduct(page, config);
 
     if (config.searchTerm) {
@@ -58,16 +68,39 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     timings.productPage = Date.now() - start;
     console.log(`Product navigation: ${timings.productPage}ms`);
 
-    // Step 3: Find the buy button — wait for JS to render it
+    // Step 2: Wait for page to fully render, then find the buy button
+    await page.waitForLoadState("networkidle");
+
     const buyBtnSelector = 'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It"), a:has-text("Add to Cart"), a:has-text("Add to cart"), a:has-text("I Want One"), a:has-text("Buy It"), a.add-to-cart, [class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]';
     let buyButton = page.locator(buyBtnSelector).first();
 
-    // Give JS time to render the buy button before checking
+    // Give JS time to render the buy button
     try {
-      await buyButton.waitFor({ state: "visible", timeout: 8000 });
+      await buyButton.waitFor({ state: "visible", timeout: 10000 });
       console.log("Buy button found on product page");
     } catch {
-      console.log("Buy button not found after 8s wait");
+      // Dump page state for debugging
+      const debugInfo = await page.evaluate(() => {
+        const allLinks = Array.from(document.querySelectorAll("a"));
+        const cartLinks = allLinks.filter(a =>
+          a.className.includes("cart") || a.textContent?.toLowerCase().includes("cart") ||
+          a.className.includes("buy") || a.textContent?.toLowerCase().includes("buy") ||
+          a.textContent?.toLowerCase().includes("want one")
+        );
+        const soldOutEls = Array.from(document.querySelectorAll("button, a, span, div"))
+          .filter(el => el.textContent?.toLowerCase().includes("sold out"));
+        return {
+          url: window.location.href,
+          cartLinks: cartLinks.map(a => ({ tag: a.tagName, class: a.className, text: a.textContent?.trim().substring(0, 80), href: a.href })),
+          soldOutEls: soldOutEls.map(el => ({ tag: el.tagName, class: el.className, text: el.textContent?.trim().substring(0, 80) })),
+          bodySnippet: document.body?.innerText?.substring(0, 1000),
+        };
+      });
+      console.log("Buy button NOT found — page debug info:");
+      console.log(`  URL: ${debugInfo.url}`);
+      console.log(`  Cart/buy-related elements: ${JSON.stringify(debugInfo.cartLinks, null, 2)}`);
+      console.log(`  Sold-out elements: ${JSON.stringify(debugInfo.soldOutEls, null, 2)}`);
+      console.log(`  Page text: ${debugInfo.bodySnippet}`);
     }
 
     if ((await buyButton.count()) === 0 || !(await buyButton.isVisible().catch(() => false))) {
@@ -77,7 +110,6 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
       await page.goto("https://www.woot.com/", { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(2000);
 
-      // Collect all product/offer links from the page
       const offerLinks = page.locator('a[href*="/offers/"], a[href*="/deals/"]');
       const linkCount = await offerLinks.count();
       console.log(`Found ${linkCount} offer links on homepage`);
@@ -90,16 +122,18 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
         console.log(`Trying product ${i + 1}: ${fullUrl}`);
 
         await page.goto(fullUrl, { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(1500);
+        await page.waitForLoadState("networkidle");
 
         buyButton = page.locator(buyBtnSelector).first();
 
-        if ((await buyButton.count()) > 0) {
+        try {
+          await buyButton.waitFor({ state: "visible", timeout: 5000 });
           console.log(`Found in-stock product: ${fullUrl}`);
           foundInStock = true;
           break;
+        } catch {
+          console.log(`Product ${i + 1} is sold out, trying next...`);
         }
-        console.log(`Product ${i + 1} is sold out, trying next...`);
       }
 
       if (!foundInStock) {
@@ -108,7 +142,7 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
       }
     }
 
-    // Step 4: Set quantity if applicable
+    // Step 3: Set quantity if applicable
     const qtySelect = page.locator('select[name*="quantity"], select[name*="qty"]').first();
     if ((await qtySelect.count()) > 0 && config.quantity > 1) {
       await qtySelect.selectOption(String(config.quantity));
@@ -124,7 +158,7 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     const checkoutUrl = page.url();
     console.log(`Checkout URL: ${checkoutUrl}`);
 
-    // Step 6: Look for checkout components (Amazon Pay flow)
+    // Step 4: Look for checkout components (Amazon Pay flow)
     const shippingAddress = page.locator('[class*="address"], [class*="Address"], [class*="shipping"], [class*="Shipping"]')
       .or(page.getByText(/shipping address|deliver to/i)).first();
 
@@ -164,10 +198,9 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
 
     // Timing summary
     console.log("\n--- Checkout Flow Timing ---");
-    console.log(`Sign-in:      ${timings.signIn}ms`);
     console.log(`Product page: ${timings.productPage}ms`);
     console.log(`Add to cart:  ${timings.addToCart}ms`);
-    const total = timings.signIn + timings.productPage + timings.addToCart;
+    const total = timings.productPage + timings.addToCart;
     console.log(`Total:        ${total}ms`);
   });
 });
