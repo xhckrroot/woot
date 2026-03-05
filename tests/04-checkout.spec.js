@@ -58,25 +58,53 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     timings.productPage = Date.now() - start;
     console.log(`Product navigation: ${timings.productPage}ms`);
 
-    // Step 3: Find the buy button first, then check availability
-    const buyButton = page.locator(
+    // Step 3: Find the buy button, or fallback to an in-stock product from homepage
+    let buyButton = page.locator(
       'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
     ).or(page.locator(
       '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
     )).first();
 
     if ((await buyButton.count()) === 0) {
-      // No buy button — check if product is sold out in the main product area
-      const productArea = page.locator('#product, [class*="product-detail"], [class*="ProductDetail"], [class*="offer"], main, [id="content"]').first();
-      const scope = (await productArea.count()) > 0 ? productArea : page;
-      const soldOut = scope.locator('button:has-text("Sold Out"), [class*="sold-out"], [class*="SoldOut"]')
-        .or(scope.getByText(/sold out|out of stock/i)).first();
-      if ((await soldOut.count()) > 0) {
-        console.log("Product is SOLD OUT — cannot complete checkout");
-      } else {
-        console.log("No buy button found");
+      console.log("Product appears sold out or no buy button — searching for an in-stock product...");
+
+      // Go to homepage and try daily deal links
+      await page.goto("https://www.woot.com/", { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(2000);
+
+      // Collect all product/offer links from the page
+      const offerLinks = page.locator('a[href*="/offers/"], a[href*="/deals/"]');
+      const linkCount = await offerLinks.count();
+      console.log(`Found ${linkCount} offer links on homepage`);
+
+      let foundInStock = false;
+      for (let i = 0; i < Math.min(linkCount, 10); i++) {
+        const href = await offerLinks.nth(i).getAttribute("href");
+        if (!href) continue;
+        const fullUrl = href.startsWith("http") ? href : `https://www.woot.com${href}`;
+        console.log(`Trying product ${i + 1}: ${fullUrl}`);
+
+        await page.goto(fullUrl, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(1500);
+
+        buyButton = page.locator(
+          'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It")'
+        ).or(page.locator(
+          '[class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]'
+        )).first();
+
+        if ((await buyButton.count()) > 0) {
+          console.log(`Found in-stock product: ${fullUrl}`);
+          foundInStock = true;
+          break;
+        }
+        console.log(`Product ${i + 1} is sold out, trying next...`);
       }
-      return;
+
+      if (!foundInStock) {
+        console.log("No in-stock products found on homepage — cannot complete checkout");
+        return;
+      }
     }
 
     // Step 4: Set quantity if applicable
