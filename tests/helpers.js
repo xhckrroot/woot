@@ -266,16 +266,25 @@ async function solveAwsCaptchaIfPresent(page) {
 
   // Poll for result (max 120s)
   for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 3000));
     const resultRes = await fetch(`${CAPMONSTER_API}/getTaskResult`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clientKey: cmApiKey, taskId }),
     });
-    const resultData = await resultRes.json();
+    const rawText = await resultRes.text();
+    console.log(`CapMonster poll #${i + 1} (HTTP ${resultRes.status}): ${rawText}`);
+
+    let resultData;
+    try {
+      resultData = JSON.parse(rawText);
+    } catch {
+      console.log(`CapMonster poll #${i + 1}: non-JSON response, retrying...`);
+      continue;
+    }
 
     if (resultData.status === "ready") {
-      console.log("CapMonster CAPTCHA solved!");
+      console.log(`CapMonster CAPTCHA solved! Full response: ${JSON.stringify(resultData, null, 2)}`);
       const solution = resultData.solution || {};
       const cookies = solution.cookies || {};
 
@@ -288,7 +297,13 @@ async function solveAwsCaptchaIfPresent(page) {
           domain: url.hostname,
           path: "/",
         }]);
-        console.log(`Set cookie: ${name}`);
+        console.log(`Set cookie: ${name}=${value.substring(0, 40)}...`);
+      }
+
+      // Also log other solution fields (userAgent, token, etc.)
+      const { cookies: _c, ...solutionRest } = solution;
+      if (Object.keys(solutionRest).length > 0) {
+        console.log(`Solution extras: ${JSON.stringify(solutionRest, null, 2)}`);
       }
 
       // Reload page with the new cookie
@@ -296,9 +311,13 @@ async function solveAwsCaptchaIfPresent(page) {
       return true;
     }
 
-    if (resultData.errorId) {
-      console.log(`CapMonster error response: ${JSON.stringify(resultData)}`);
-      throw new Error(`CapMonster solve error [${resultData.errorCode}]: ${resultData.errorDescription}`);
+    if (resultData.errorId && resultData.errorId !== 0) {
+      console.log(`CapMonster error — full response: ${JSON.stringify(resultData, null, 2)}`);
+      console.log(`  errorId: ${resultData.errorId}`);
+      console.log(`  errorCode: ${resultData.errorCode || "(empty)"}`);
+      console.log(`  errorDescription: ${resultData.errorDescription || "(empty)"}`);
+      console.log(`  taskId: ${resultData.taskId || "(none)"}`);
+      throw new Error(`CapMonster solve error: errorId=${resultData.errorId}, errorCode=${resultData.errorCode || "none"}, desc=${resultData.errorDescription || "none"}`);
     }
   }
 
