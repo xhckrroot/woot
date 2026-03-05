@@ -58,11 +58,19 @@ test.describe("4. Full Checkout Flow (requires Amazon credentials)", () => {
     timings.productPage = Date.now() - start;
     console.log(`Product navigation: ${timings.productPage}ms`);
 
-    // Step 3: Find the buy button, or fallback to an in-stock product from homepage
+    // Step 3: Find the buy button — wait for JS to render it
     const buyBtnSelector = 'button:has-text("Add to Cart"), button:has-text("I Want One"), button:has-text("Buy It"), a:has-text("Add to Cart"), a:has-text("Add to cart"), a:has-text("I Want One"), a:has-text("Buy It"), a.add-to-cart, [class*="buy-button"], [class*="BuyButton"], [class*="add-to-cart"], [class*="addToCart"]';
     let buyButton = page.locator(buyBtnSelector).first();
 
-    if ((await buyButton.count()) === 0) {
+    // Give JS time to render the buy button before checking
+    try {
+      await buyButton.waitFor({ state: "visible", timeout: 8000 });
+      console.log("Buy button found on product page");
+    } catch {
+      console.log("Buy button not found after 8s wait");
+    }
+
+    if ((await buyButton.count()) === 0 || !(await buyButton.isVisible().catch(() => false))) {
       console.log("Product appears sold out or no buy button — searching for an in-stock product...");
 
       // Go to homepage and try daily deal links
